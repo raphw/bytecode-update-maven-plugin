@@ -18,4 +18,11 @@ public class PackageNameRemapper extends Remapper {
         }
         return internalName;
     }
+
+    public String reverse(String internalName) {
+        if (internalName.startsWith(newPackage)) {
+            return oldPackage + internalName.substring(newPackage.length());
+        }
+        return internalName;
+    }
 }

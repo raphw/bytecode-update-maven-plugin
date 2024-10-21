@@ -17,6 +17,10 @@ import org.objectweb.asm.commons.ClassRemapper;
 import org.objectweb.asm.commons.Remapper;
 
 import java.io.*;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.jar.JarEntry;
@@ -54,6 +58,15 @@ public class BytecodeUpdateMavenPlugin extends AbstractMojo {
 
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
+        List<URL> urls = new ArrayList<>();
+        for (Artifact artifact : project.getArtifacts()) {
+            try {
+                urls.add(artifact.getFile().toURI().toURL());
+            } catch (MalformedURLException e) {
+                throw new MojoFailureException("Failed ro resolve location " + artifact.getFile(), e);
+            }
+        }
+        URLClassLoader classLoader = new URLClassLoader(urls.toArray(new URL[0]), getClass().getClassLoader());
         Remapper remapper = oldPackage == null && newPackage == null
                 ? new Remapper() { }
                 : new PackageNameRemapper(oldPackage.replace('.', '/'), newPackage.replace('.', '/'));
@@ -105,7 +118,41 @@ public class BytecodeUpdateMavenPlugin extends AbstractMojo {
                             InputStream inputStream = file.getInputStream(entry);
                             try {
                                 ClassReader classReader = new ClassReader(inputStream);
-                                ClassWriter classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+                                ClassWriter classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
+                                    @Override
+                                    protected String getCommonSuperClass(String type1, String type2) {
+                                        if (remapper instanceof PackageNameRemapper) {
+                                            type1 = ((PackageNameRemapper) remapper).reverse(type1);
+                                            type2 = ((PackageNameRemapper) remapper).reverse(type2);
+                                        }
+                                        Class<?> class1;
+                                        try {
+                                            class1 = Class.forName(type1.replace('/', '.'), false, classLoader);
+                                        } catch (Exception e) {
+                                            throw new TypeNotPresentException(type1, e);
+                                        }
+                                        Class<?> class2;
+                                        try {
+                                            class2 = Class.forName(type2.replace('/', '.'), false, classLoader);
+                                        } catch (Exception e) {
+                                            throw new TypeNotPresentException(type2, e);
+                                        }
+                                        if (class1.isAssignableFrom(class2)) {
+                                            return type1;
+                                        }
+                                        if (class2.isAssignableFrom(class1)) {
+                                            return type2;
+                                        }
+                                        if (class1.isInterface() || class2.isInterface()) {
+                                            return "java/lang/Object";
+                                        } else {
+                                            do {
+                                                class1 = class1.getSuperclass();
+                                            } while (!class1.isAssignableFrom(class2));
+                                            return class1.getName().replace('.', '/');
+                                        }
+                                    }
+                                };
                                 classReader.accept(new ClassVisitor(Opcodes.ASM6, new ClassRemapper(classWriter, remapper)) {
                                     @Override
                                     public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
