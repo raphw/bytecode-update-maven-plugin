@@ -56,7 +56,7 @@ public class BytecodeUpdateMavenPlugin extends AbstractMojo {
     public void execute() throws MojoExecutionException, MojoFailureException {
         Remapper remapper = oldPackage == null && newPackage == null
                 ? new Remapper() { }
-                : new PackageNameRemapper(oldPackage, newPackage);
+                : new PackageNameRemapper(oldPackage.replace('.', '/'), newPackage.replace('.', '/'));
         for (Artifact artifact : project.getArtifacts()) {
             String value = artifact.getGroupId() + ":" + artifact.getArtifactId() + ":" + artifact.getVersion();
             boolean isRelevant = false;
